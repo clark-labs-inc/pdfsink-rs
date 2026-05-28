@@ -9,7 +9,7 @@
 
 **Keywords:** rust pdf library · rust pdf parser · pdf text extraction · pdf table extraction · pdfplumber alternative · rust pdf crate · extract text from pdf rust · extract tables from pdf rust · pdf layout analysis · pdf to json
 
-Built and maintained by [Clark Labs Inc.](https://github.com/clark-labs-inc)
+Built and maintained by Stanislav Kirdey, [Clark Labs Inc.](https://github.com/clark-labs-inc)
 
 ## Why pdfsink-rs?
 
@@ -199,10 +199,14 @@ Yes. `page.to_image()` rasterizes pages to PNG or JPEG at any DPI.
 **Does it handle malformed PDFs?**
 Yes. Pages that fail content-stream parsing are reported but don't abort document-level extraction — geometry is preserved and bad content is skipped.
 
+## Citation
+
+Citation authorship: Stanislav Kirdey, Clark Labs Inc. See [`CITATION.cff`](CITATION.cff) for machine-readable citation metadata.
+
 ## License
 
-MIT © [Clark Labs Inc.](https://github.com/clark-labs-inc)
+MIT © Stanislav Kirdey, [Clark Labs Inc.](https://github.com/clark-labs-inc)
 
 ---
 
-Built by **Clark Labs Inc.** — the team behind [Clark Agent](https://www.clarkchat.com), AI-powered web automation and research. If pdfsink-rs saves you time, a ⭐ on [GitHub](https://github.com/clark-labs-inc/pdfsink-rs) helps others discover it.
+Built by **Stanislav Kirdey, Clark Labs Inc.** — the team behind [Clark Agent](https://www.clarkchat.com), AI-powered web automation and research. If pdfsink-rs saves you time, a ⭐ on [GitHub](https://github.com/clark-labs-inc/pdfsink-rs) helps others discover it.
