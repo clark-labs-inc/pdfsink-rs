@@ -3,17 +3,141 @@ use crate::table::{Table, TableFinder, TableSettings};
 use crate::Result;
 use font8x8::UnicodeFonts;
 use image::{ImageBuffer, ImageFormat, Rgba, RgbaImage};
-use imageproc::drawing::{
-    draw_filled_circle_mut, draw_filled_rect_mut, draw_hollow_circle_mut, draw_hollow_rect_mut,
-    draw_line_segment_mut,
-};
-use imageproc::rect::Rect as ImageRect;
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 const DEFAULT_RESOLUTION: f64 = 72.0;
+
+#[derive(Debug, Clone, Copy)]
+struct ImageRect {
+    x: i32,
+    y: i32,
+    width: u32,
+    height: u32,
+}
+
+impl ImageRect {
+    fn at(x: i32, y: i32) -> Self {
+        Self {
+            x,
+            y,
+            width: 0,
+            height: 0,
+        }
+    }
+
+    fn of_size(self, width: u32, height: u32) -> Self {
+        Self {
+            width,
+            height,
+            ..self
+        }
+    }
+
+    fn left(&self) -> i32 {
+        self.x
+    }
+
+    fn top(&self) -> i32 {
+        self.y
+    }
+
+    fn width(&self) -> u32 {
+        self.width
+    }
+
+    fn height(&self) -> u32 {
+        self.height
+    }
+}
+
+fn put_pixel_clipped(image: &mut RgbaImage, x: i32, y: i32, color: Rgba<u8>) {
+    if x >= 0 && y >= 0 {
+        let (x, y) = (x as u32, y as u32);
+        if x < image.width() && y < image.height() {
+            image.put_pixel(x, y, color);
+        }
+    }
+}
+
+fn draw_filled_rect_mut(image: &mut RgbaImage, rect: ImageRect, color: Rgba<u8>) {
+    let x0 = rect.x.max(0) as u32;
+    let y0 = rect.y.max(0) as u32;
+    let x1 = (rect.x as i64 + rect.width as i64)
+        .clamp(0, image.width() as i64) as u32;
+    let y1 = (rect.y as i64 + rect.height as i64)
+        .clamp(0, image.height() as i64) as u32;
+
+    for y in y0..y1 {
+        for x in x0..x1 {
+            image.put_pixel(x, y, color);
+        }
+    }
+}
+
+fn draw_hollow_rect_mut(image: &mut RgbaImage, rect: ImageRect, color: Rgba<u8>) {
+    if rect.width == 0 || rect.height == 0 {
+        return;
+    }
+
+    let right = rect.x + rect.width as i32 - 1;
+    let bottom = rect.y + rect.height as i32 - 1;
+    for x in rect.x..=right {
+        put_pixel_clipped(image, x, rect.y, color);
+        put_pixel_clipped(image, x, bottom, color);
+    }
+    for y in rect.y..=bottom {
+        put_pixel_clipped(image, rect.x, y, color);
+        put_pixel_clipped(image, right, y, color);
+    }
+}
+
+fn draw_line_segment_mut(image: &mut RgbaImage, start: (f32, f32), end: (f32, f32), color: Rgba<u8>) {
+    let (x0, y0) = start;
+    let (x1, y1) = end;
+    let dx = x1 - x0;
+    let dy = y1 - y0;
+    let steps = dx.abs().max(dy.abs()).ceil() as i32;
+    if steps <= 0 {
+        put_pixel_clipped(image, x0.round() as i32, y0.round() as i32, color);
+        return;
+    }
+
+    for step in 0..=steps {
+        let t = step as f32 / steps as f32;
+        let x = x0 + dx * t;
+        let y = y0 + dy * t;
+        put_pixel_clipped(image, x.round() as i32, y.round() as i32, color);
+    }
+}
+
+fn draw_filled_circle_mut(image: &mut RgbaImage, center: (i32, i32), radius: i32, color: Rgba<u8>) {
+    let radius = radius.max(1);
+    let radius_sq = radius * radius;
+    for dy in -radius..=radius {
+        for dx in -radius..=radius {
+            if dx * dx + dy * dy <= radius_sq {
+                put_pixel_clipped(image, center.0 + dx, center.1 + dy, color);
+            }
+        }
+    }
+}
+
+fn draw_hollow_circle_mut(image: &mut RgbaImage, center: (i32, i32), radius: i32, color: Rgba<u8>) {
+    let radius = radius.max(1);
+    let radius_sq = radius * radius;
+    let inner_sq = (radius - 1) * (radius - 1);
+    for dy in -radius..=radius {
+        for dx in -radius..=radius {
+            let dist = dx * dx + dy * dy;
+            if dist <= radius_sq && dist >= inner_sq {
+                put_pixel_clipped(image, center.0 + dx, center.1 + dy, color);
+            }
+        }
+    }
+}
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 pub struct RgbaColor {

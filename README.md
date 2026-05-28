@@ -86,8 +86,10 @@ Or in `Cargo.toml`:
 
 ```toml
 [dependencies]
-pdfsink-rs = "0.2"
+pdfsink-rs = "0.2.8"
 ```
+
+Requires Rust **1.88+**.
 
 ## Quick Start — Extract Text and Tables from a PDF in Rust
 

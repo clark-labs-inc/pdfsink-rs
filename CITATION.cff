@@ -5,7 +5,7 @@ authors:
   - family-names: "Kirdey"
     given-names: "Stanislav"
     affiliation: "Clark Labs Inc."
-version: "0.2.7"
+version: "0.2.8"
 date-released: "2026-05-28"
 repository-code: "https://github.com/clark-labs-inc/pdfsink-rs"
 license: "MIT"

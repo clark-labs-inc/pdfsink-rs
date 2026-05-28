@@ -1,7 +1,8 @@
 [package]
 name = "pdfsink-rs"
-version = "0.2.7"
+version = "0.2.8"
 edition = "2021"
+rust-version = "1.88"
 authors = ["Stanislav Kirdey, Clark Labs Inc. <https://github.com/clark-labs-inc>"]
 description = "Fast pure-Rust PDF extraction library and CLI — ~10-50x faster than pdfplumber for text, word, table, layout, image, and metadata extraction from PDFs. By Clark Labs Inc."
 license = "MIT"
@@ -25,7 +26,6 @@ csv = "1"
 euclid = "0.20.5"
 font8x8 = { version = "0.3", default-features = false, features = ["unicode"] }
 image = { version = "0.25", default-features = false, features = ["png", "jpeg"] }
-imageproc = { version = "0.25", default-features = false }
 lopdf = "0.38"
 ordered-float = "4"
 pdf-extract = "0.10"
