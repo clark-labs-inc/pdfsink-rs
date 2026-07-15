@@ -8,6 +8,11 @@ use lopdf::content::Content;
 use lopdf::{Dictionary, Document, Object, ObjectId, Stream};
 use pdf_extract::{MediaBox, OutputDev, Path, PathOp, Space, Transform};
 use serde_json::Value;
+use std::collections::HashSet;
+
+const MAX_FORM_XOBJECT_DEPTH: usize = 64;
+const MAX_PAGE_PARENT_DEPTH: usize = 256;
+const MAX_XOBJECT_INVOCATIONS_PER_PAGE: usize = 10_000;
 
 #[derive(Debug, Clone, Copy)]
 struct PageGeometry {
@@ -405,9 +410,21 @@ fn parse_page(doc: &Document, page_number: usize, page_id: ObjectId, doctop_offs
         .map(|obj| obj_to_box(&obj).and_then(|raw| raw_box_to_bbox(raw, geom).ok_or_else(|| Error::Message("invalid ArtBox".to_string()))))
         .transpose()?;
 
+    let page_dict = page_dict(doc, page_id)?;
+    let resources = get_inherited_object(doc, page_id, b"Resources")?
+        .map(|obj| object_to_dict(doc, &obj))
+        .transpose()?
+        .unwrap_or_else(Dictionary::new);
+
+    // Validate recursive XObject traversal before handing the same untrusted
+    // graph to pdf-extract, whose recursive walker cannot recover from a stack
+    // overflow. Malformed image content retains the existing empty-content
+    // recovery behavior.
+    let images_result = collect_images(doc, &resources, page_id, geom, page_number);
+
     // pdf-extract may panic on malformed content streams; recover with empty content
     let mut collector = CollectorOutput::new(geom, page_number);
-    let content_ok = {
+    let content_ok = images_result.is_ok() && {
         let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
             pdf_extract::output_doc_page(doc, &mut collector, page_number as u32)
         }));
@@ -422,13 +439,7 @@ fn parse_page(doc: &Document, page_number: usize, page_id: ObjectId, doctop_offs
         (Vec::new(), Vec::new(), Vec::new(), Vec::new())
     };
 
-    let page_dict = page_dict(doc, page_id)?;
-    let resources = get_inherited_object(doc, page_id, b"Resources")?
-        .map(|obj| object_to_dict(doc, &obj))
-        .transpose()?
-        .unwrap_or_else(Dictionary::new);
-
-    let images = collect_images(doc, &resources, page_id, geom, page_number).unwrap_or_default();
+    let images = images_result.unwrap_or_default();
     let (annots, hyperlinks) = collect_annotations(doc, &page_dict, geom, page_number)
         .unwrap_or_default();
 
@@ -468,8 +479,15 @@ fn collect_images(
         doc,
         geom,
         images: Vec::new(),
+        active_forms: HashSet::new(),
+        remaining_xobject_invocations: MAX_XOBJECT_INVOCATIONS_PER_PAGE,
     };
-    walker.walk_stream(content, resources, Transform2D::<f64, Space, Space>::identity())?;
+    walker.walk_stream(
+        content,
+        resources,
+        Transform2D::<f64, Space, Space>::identity(),
+        0,
+    )?;
     let mut images = walker.images;
     for image in &mut images {
         image.page_number = page_number;
@@ -481,10 +499,18 @@ struct ImageWalker<'a> {
     doc: &'a Document,
     geom: PageGeometry,
     images: Vec<ImageObject>,
+    active_forms: HashSet<ObjectId>,
+    remaining_xobject_invocations: usize,
 }
 
 impl<'a> ImageWalker<'a> {
-    fn walk_stream(&mut self, content: Vec<u8>, resources: &Dictionary, initial_ctm: Transform) -> Result<()> {
+    fn walk_stream(
+        &mut self,
+        content: Vec<u8>,
+        resources: &Dictionary,
+        initial_ctm: Transform,
+        form_depth: usize,
+    ) -> Result<()> {
         let content = Content::decode(&content)?;
         let mut ctm = initial_ctm;
         let mut stack: Vec<Transform> = Vec::new();
@@ -503,7 +529,7 @@ impl<'a> ImageWalker<'a> {
                 }
                 "Do" => {
                     if let Some(name) = op.operands.get(0).and_then(obj_to_name_string) {
-                        self.handle_xobject(resources, &name, ctm)?;
+                        self.handle_xobject(resources, &name, ctm, form_depth)?;
                     }
                 }
                 _ => {}
@@ -513,7 +539,13 @@ impl<'a> ImageWalker<'a> {
         Ok(())
     }
 
-    fn handle_xobject(&mut self, resources: &Dictionary, name: &str, ctm: Transform) -> Result<()> {
+    fn handle_xobject(
+        &mut self,
+        resources: &Dictionary,
+        name: &str,
+        ctm: Transform,
+        form_depth: usize,
+    ) -> Result<()> {
         let Some(xobjects_obj) = dict_get(resources, b"XObject") else {
             return Ok(());
         };
@@ -521,7 +553,14 @@ impl<'a> ImageWalker<'a> {
         let Some(target) = dict_get(&xobjects, name.as_bytes()) else {
             return Ok(());
         };
+        if self.remaining_xobject_invocations == 0 {
+            return Err(Error::Message(format!(
+                "page exceeds maximum of {MAX_XOBJECT_INVOCATIONS_PER_PAGE} XObject invocations"
+            )));
+        }
+        self.remaining_xobject_invocations -= 1;
 
+        let object_id = obj_to_reference(target);
         let object = deref_object(self.doc, target)?;
         let stream = match object {
             Object::Stream(stream) => stream,
@@ -535,6 +574,17 @@ impl<'a> ImageWalker<'a> {
         match subtype.as_str() {
             "Image" => self.push_image(name, &stream, ctm),
             "Form" => {
+                if form_depth >= MAX_FORM_XOBJECT_DEPTH {
+                    return Err(Error::Message(format!(
+                        "Form XObject nesting exceeds maximum depth of {MAX_FORM_XOBJECT_DEPTH}"
+                    )));
+                }
+                if let Some(object_id) = object_id {
+                    if !self.active_forms.insert(object_id) {
+                        return Err(Error::Message("cyclic Form XObject reference".to_string()));
+                    }
+                }
+
                 let form_resources = dict_get(&stream.dict, b"Resources")
                     .map(|obj| object_to_dict(self.doc, obj))
                     .transpose()?
@@ -554,7 +604,11 @@ impl<'a> ImageWalker<'a> {
                     .decompressed_content()
                     .unwrap_or_else(|_| stream.content.clone());
 
-                self.walk_stream(bytes, &form_resources, next_ctm)?;
+                let result = self.walk_stream(bytes, &form_resources, next_ctm, form_depth + 1);
+                if let Some(object_id) = object_id {
+                    self.active_forms.remove(&object_id);
+                }
+                result?;
             }
             _ => {}
         }
@@ -706,7 +760,11 @@ fn page_dict(doc: &Document, page_id: ObjectId) -> Result<Dictionary> {
 }
 
 fn get_inherited_object(doc: &Document, mut current_id: ObjectId, key: &[u8]) -> Result<Option<Object>> {
-    loop {
+    let mut visited = HashSet::new();
+    for _ in 0..MAX_PAGE_PARENT_DEPTH {
+        if !visited.insert(current_id) {
+            return Err(Error::Message("cyclic page Parent chain".to_string()));
+        }
         let dict = page_dict(doc, current_id)?;
         if let Some(obj) = dict_get(&dict, key) {
             return Ok(Some(deref_object(doc, obj)?));
@@ -718,6 +776,9 @@ fn get_inherited_object(doc: &Document, mut current_id: ObjectId, key: &[u8]) ->
             return Ok(None);
         }
     }
+    Err(Error::Message(format!(
+        "page Parent chain exceeds maximum depth of {MAX_PAGE_PARENT_DEPTH}"
+    )))
 }
 
 fn transform_from_operands(operands: &[Object]) -> Result<Transform> {

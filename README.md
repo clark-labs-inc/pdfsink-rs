@@ -86,7 +86,7 @@ Or in `Cargo.toml`:
 
 ```toml
 [dependencies]
-pdfsink-rs = "0.2.8"
+pdfsink-rs = "0.2.10"
 ```
 
 Requires Rust **1.88+**.
