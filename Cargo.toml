@@ -1,8 +1,8 @@
 [package]
 name = "pdfsink-rs"
-version = "0.2.10"
+version = "0.2.11"
 edition = "2021"
-rust-version = "1.88"
+rust-version = "1.97"
 authors = ["Stanislav Kirdey, Clark Labs Inc. <https://github.com/clark-labs-inc>"]
 description = "Fast pure-Rust PDF extraction library and CLI — ~10-50x faster than pdfplumber for text, word, table, layout, image, and metadata extraction from PDFs. By Clark Labs Inc."
 license = "MIT"
