@@ -1,13 +1,18 @@
 use super::*;
+use std::io::Read;
 
-const MAX_WIDGET_APPEARANCES_PER_PAGE: usize = 1_024;
-const MAX_WIDGET_APPEARANCE_BYTES_PER_PAGE: usize = 64 * 1024 * 1024;
+mod free_text;
+
+const MAX_ANNOTATION_APPEARANCES_PER_PAGE: usize = 1_024;
+const MAX_ANNOTATION_APPEARANCE_BYTES_PER_PAGE: usize = 64 * 1024 * 1024;
+const MAX_ANNOTATION_APPEARANCE_BYTES: usize = 8 * 1024 * 1024;
 
 type AppearanceObjects = (Vec<Char>, Vec<Line>, Vec<RectObject>, Vec<Curve>);
 
 struct AppearanceJob {
     content: Vec<u8>,
     resources: Object,
+    clip: BBox,
 }
 
 pub(super) fn collect(
@@ -18,7 +23,7 @@ pub(super) fn collect(
     page_number: usize,
     page_resources: &Dictionary,
 ) -> AppearanceObjects {
-    let jobs = collect_jobs(doc, page_dict, page_resources);
+    let jobs = collect_jobs(doc, page_dict, geom, page_resources);
     let mut output = (Vec::new(), Vec::new(), Vec::new(), Vec::new());
     if jobs.is_empty() {
         return output;
@@ -44,7 +49,19 @@ pub(super) fn collect(
             continue;
         }
 
-        let (chars, lines, rects, curves) = collector.finish();
+        let (mut chars, mut lines, mut rects, mut curves) = collector.finish();
+        chars.retain(|object| {
+            bbox_is_within(object.x0, object.top, object.x1, object.bottom, job.clip)
+        });
+        lines.retain(|object| {
+            bbox_is_within(object.x0, object.top, object.x1, object.bottom, job.clip)
+        });
+        rects.retain(|object| {
+            bbox_is_within(object.x0, object.top, object.x1, object.bottom, job.clip)
+        });
+        curves.retain(|object| {
+            bbox_is_within(object.x0, object.top, object.x1, object.bottom, job.clip)
+        });
         output.0.extend(chars);
         output.1.extend(lines);
         output.2.extend(rects);
@@ -56,6 +73,7 @@ pub(super) fn collect(
 fn collect_jobs(
     doc: &Document,
     page_dict: &Dictionary,
+    geom: PageGeometry,
     page_resources: &Dictionary,
 ) -> Vec<AppearanceJob> {
     let Some(annots_obj) = dict_get(page_dict, b"Annots") else {
@@ -67,33 +85,47 @@ fn collect_jobs(
 
     let mut jobs = Vec::new();
     let mut total_bytes = 0usize;
-    for annot_obj in annots.into_iter().take(MAX_WIDGET_APPEARANCES_PER_PAGE) {
-        let Ok(Object::Dictionary(widget)) = deref_object(doc, &annot_obj) else {
+    for annot_obj in annots
+        .into_iter()
+        .take(MAX_ANNOTATION_APPEARANCES_PER_PAGE)
+    {
+        let Ok(Object::Dictionary(annotation)) = deref_object(doc, &annot_obj) else {
             continue;
         };
-        if dict_get(&widget, b"Subtype").and_then(obj_to_name_string).as_deref()
-            != Some("Widget")
-        {
-            continue;
-        }
-        let flags = dict_get(&widget, b"F").and_then(obj_to_i64).unwrap_or(0);
+        let flags = dict_get(&annotation, b"F")
+            .and_then(obj_to_i64)
+            .unwrap_or(0);
         if flags & (1 | 2 | 32) != 0 {
             continue;
         }
-        let Some(rect) = dict_get(&widget, b"Rect").and_then(|value| obj_to_box(value).ok())
+        let Some(rect) =
+            dict_get(&annotation, b"Rect").and_then(|value| obj_to_box(value).ok())
         else {
             continue;
         };
-        let Some(stream) = selected_normal_appearance(doc, &widget) else {
+        let subtype = dict_get(&annotation, b"Subtype").and_then(obj_to_name_string);
+        let stream = if subtype.as_deref() == Some("Widget") {
+            selected_widget_normal_appearance(doc, &annotation)
+        } else if dict_get(&annotation, b"AP").is_some() {
+            direct_normal_appearance(doc, &annotation)
+        } else if subtype.as_deref() == Some("FreeText") {
+            free_text::synthesize(doc, &annotation, rect, page_resources)
+        } else {
+            None
+        };
+        let Some(stream) = stream else {
             continue;
         };
-        let Some(job) = prepare_job(doc, &stream, rect, page_resources) else {
+        let remaining = MAX_ANNOTATION_APPEARANCE_BYTES_PER_PAGE.saturating_sub(total_bytes);
+        let Some(job) =
+            prepare_job(doc, &stream, rect, geom, page_resources, remaining)
+        else {
             continue;
         };
         let Some(next_total) = total_bytes.checked_add(job.content.len()) else {
             break;
         };
-        if next_total > MAX_WIDGET_APPEARANCE_BYTES_PER_PAGE {
+        if next_total > MAX_ANNOTATION_APPEARANCE_BYTES_PER_PAGE {
             break;
         }
         total_bytes = next_total;
@@ -102,7 +134,7 @@ fn collect_jobs(
     jobs
 }
 
-fn selected_normal_appearance(doc: &Document, widget: &Dictionary) -> Option<Stream> {
+fn selected_widget_normal_appearance(doc: &Document, widget: &Dictionary) -> Option<Stream> {
     let appearance = object_to_dict(doc, dict_get(widget, b"AP")?).ok()?;
     let normal = deref_object(doc, dict_get(&appearance, b"N")?).ok()?;
     match normal {
@@ -115,6 +147,14 @@ fn selected_normal_appearance(doc: &Document, widget: &Dictionary) -> Option<Str
                 _ => None,
             }
         }
+        _ => None,
+    }
+}
+
+fn direct_normal_appearance(doc: &Document, annotation: &Dictionary) -> Option<Stream> {
+    let appearance = object_to_dict(doc, dict_get(annotation, b"AP")?).ok()?;
+    match deref_object(doc, dict_get(&appearance, b"N")?).ok()? {
+        Object::Stream(stream) if is_form_appearance(&stream) => Some(stream),
         _ => None,
     }
 }
@@ -146,7 +186,9 @@ fn prepare_job(
     doc: &Document,
     stream: &Stream,
     rect: [f64; 4],
+    geom: PageGeometry,
     page_resources: &Dictionary,
+    remaining_bytes: usize,
 ) -> Option<AppearanceJob> {
     let bbox = obj_to_box(dict_get(&stream.dict, b"BBox")?).ok()?;
     let matrix = dict_get(&stream.dict, b"Matrix")
@@ -190,7 +232,23 @@ fn prepare_job(
         return None;
     }
 
-    let content = stream.decompressed_content().ok()?;
+    let clip = format!(
+        "{} {} {} {} re W n\n",
+        bbox[0].min(bbox[2]),
+        bbox[1].min(bbox[3]),
+        (bbox[2] - bbox[0]).abs(),
+        (bbox[3] - bbox[1]).abs()
+    );
+    let prefix = format!(
+        "q\n{scale_x} 0 0 {scale_y} {translate_x} {translate_y} cm\n\
+         {} {} {} {} {} {} cm\n{clip}",
+        matrix.m11, matrix.m12, matrix.m21, matrix.m22, matrix.m31, matrix.m32
+    );
+    let overhead = prefix.len().checked_add(3)?;
+    let content_limit = remaining_bytes
+        .saturating_sub(overhead)
+        .min(MAX_ANNOTATION_APPEARANCE_BYTES);
+    let content = bounded_stream_content(stream, content_limit)?;
     let decoded = Content::decode(&content).ok()?;
     if decoded.operations.iter().any(|operation| operation.operator == "Do") {
         return None;
@@ -201,11 +259,6 @@ fn prepare_job(
         .unwrap_or_else(|| Object::Dictionary(page_resources.clone()));
     object_to_dict(doc, &resources).ok()?;
 
-    let prefix = format!(
-        "q\n{scale_x} 0 0 {scale_y} {translate_x} {translate_y} cm\n\
-         {} {} {} {} {} {} cm\n",
-        matrix.m11, matrix.m12, matrix.m21, matrix.m22, matrix.m31, matrix.m32
-    );
     let mut page_content = Vec::with_capacity(prefix.len() + content.len() + 3);
     page_content.extend_from_slice(prefix.as_bytes());
     page_content.extend_from_slice(&content);
@@ -214,7 +267,53 @@ fn prepare_job(
     Some(AppearanceJob {
         content: page_content,
         resources,
+        clip: annotation_bbox(rect, geom)?,
     })
+}
+
+fn annotation_bbox(rect: [f64; 4], geom: PageGeometry) -> Option<BBox> {
+    let points = [
+        geom.map_raw_point(rect[0], rect[1]),
+        geom.map_raw_point(rect[2], rect[1]),
+        geom.map_raw_point(rect[2], rect[3]),
+        geom.map_raw_point(rect[0], rect[3]),
+    ];
+    bbox_from_points(&points)
+}
+
+fn bbox_is_within(x0: f64, top: f64, x1: f64, bottom: f64, clip: BBox) -> bool {
+    const EPSILON: f64 = 1e-6;
+    [x0, top, x1, bottom].into_iter().all(f64::is_finite)
+        && x0 >= clip.x0 - EPSILON
+        && top >= clip.top - EPSILON
+        && x1 <= clip.x1 + EPSILON
+        && bottom <= clip.bottom + EPSILON
+}
+
+fn bounded_stream_content(stream: &Stream, limit: usize) -> Option<Vec<u8>> {
+    if limit == 0 || stream.content.len() > MAX_ANNOTATION_APPEARANCE_BYTES {
+        return None;
+    }
+    let filters = if dict_get(&stream.dict, b"Filter").is_some() {
+        stream.filters().ok()?
+    } else {
+        Vec::new()
+    };
+    match filters.as_slice() {
+        [] => (stream.content.len() <= limit).then(|| stream.content.clone()),
+        [b"FlateDecode"] if dict_get(&stream.dict, b"DecodeParms").is_none() => {
+            let mut decoder = flate2::read::ZlibDecoder::new(stream.content.as_slice());
+            let read_limit = u64::try_from(limit).ok()?.checked_add(1)?;
+            let mut content = Vec::new();
+            decoder
+                .by_ref()
+                .take(read_limit)
+                .read_to_end(&mut content)
+                .ok()?;
+            (content.len() <= limit).then_some(content)
+        }
+        _ => None,
+    }
 }
 
 fn transformed_box(raw: [f64; 4], matrix: &Transform) -> Option<[f64; 4]> {

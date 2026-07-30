@@ -10,7 +10,7 @@ use pdf_extract::{MediaBox, OutputDev, Path, PathOp, Space, Transform};
 use serde_json::Value;
 use std::collections::HashSet;
 
-mod widget_appearance;
+mod annotation_appearance;
 
 const MAX_FORM_XOBJECT_DEPTH: usize = 64;
 const MAX_PAGE_PARENT_DEPTH: usize = 256;
@@ -452,7 +452,7 @@ fn parse_page(doc: &Document, page_number: usize, page_id: ObjectId, doctop_offs
         (Vec::new(), Vec::new(), Vec::new(), Vec::new())
     };
     let (appearance_chars, appearance_lines, appearance_rects, appearance_curves) =
-        widget_appearance::collect(doc, &page_dict, page_id, geom, page_number, &resources);
+        annotation_appearance::collect(doc, &page_dict, page_id, geom, page_number, &resources);
     chars.extend(appearance_chars);
     lines.extend(appearance_lines);
     rects.extend(appearance_rects);
