@@ -93,3 +93,83 @@ fn compound_rectangle_paths_contribute_transformed_geometry() {
     assert_eq!((curve.x0, curve.top, curve.x1, curve.bottom), (0.0, 75.0, 25.0, 100.0));
     assert_eq!(curve.pts.len(), 8);
 }
+
+#[test]
+fn combined_and_close_path_paint_operators_emit_independent_geometry() {
+    let pdf = build_pdf(&[
+        "<< /Type /Catalog /Pages 2 0 R >>",
+        "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+        "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 100 100] /Contents 4 0 R >>",
+        "<< /Length 50 >>\nstream\n10 80 10 10 re B\n20 60 10 10 re f\n30 40 10 10 re s\nendstream",
+    ]);
+    let file = TempPdf::new("combined-paint-operators", &pdf);
+
+    let document = PdfDocument::open(file.path()).expect("open painted paths PDF");
+    let page = document.page(1).expect("page 1");
+
+    assert_eq!(page.rects.len(), 3);
+    assert_eq!(
+        page.rects
+            .iter()
+            .map(|rect| (
+                rect.x0,
+                rect.top,
+                rect.x1,
+                rect.bottom,
+                rect.stroke,
+                rect.fill,
+            ))
+            .collect::<Vec<_>>(),
+        vec![
+            (10.0, 10.0, 20.0, 20.0, true, true),
+            (20.0, 30.0, 30.0, 40.0, false, true),
+            (30.0, 50.0, 40.0, 60.0, true, false),
+        ]
+    );
+    assert!(page.curves.is_empty());
+
+    let image = page
+        .to_image(Some(72.0), None, None, false, false)
+        .expect("render painted paths");
+    assert_eq!(image.original.get_pixel(10, 10).0, [0, 0, 0, 255]);
+    assert_eq!(image.original.get_pixel(15, 15).0, [235, 235, 235, 255]);
+}
+
+#[test]
+fn combined_paint_geometry_in_nested_forms_keeps_its_transform_scope() {
+    let pdf = build_pdf(&[
+        "<< /Type /Catalog /Pages 2 0 R >>",
+        "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+        "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 100 100] \
+         /Resources << /XObject << /Fm1 5 0 R >> >> /Contents 4 0 R >>",
+        "<< /Length 43 >>\nstream\nq 2 0 0 2 10 10 cm /Fm1 Do Q\n60 70 5 5 re B\nendstream",
+        "<< /Type /XObject /Subtype /Form /BBox [0 0 20 20] \
+         /Matrix [1 0 0 1 5 0] /Resources << /XObject << /Fm2 6 0 R >> >> \
+         /Length 7 >>\nstream\n/Fm2 Do\nendstream",
+        "<< /Type /XObject /Subtype /Form /BBox [0 0 10 10] \
+         /Resources << >> /Length 12 >>\nstream\n1 2 3 4 re B\nendstream",
+    ]);
+    let file = TempPdf::new("nested-form-combined-paint", &pdf);
+
+    let document = PdfDocument::open(file.path()).expect("open nested Form PDF");
+    let page = document.page(1).expect("page 1");
+
+    assert_eq!(page.rects.len(), 2);
+    assert_eq!(
+        page.rects
+            .iter()
+            .map(|rect| (
+                rect.x0,
+                rect.top,
+                rect.x1,
+                rect.bottom,
+                rect.stroke,
+                rect.fill,
+            ))
+            .collect::<Vec<_>>(),
+        vec![
+            (22.0, 78.0, 28.0, 86.0, true, true),
+            (60.0, 25.0, 65.0, 30.0, true, true),
+        ]
+    );
+}

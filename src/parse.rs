@@ -11,6 +11,7 @@ use serde_json::Value;
 use std::collections::HashSet;
 
 mod annotation_appearance;
+mod page_paths;
 
 const MAX_FORM_XOBJECT_DEPTH: usize = 64;
 const MAX_PAGE_PARENT_DEPTH: usize = 256;
@@ -446,10 +447,17 @@ fn parse_page(doc: &Document, page_number: usize, page_id: ObjectId, doctop_offs
             Ok(Err(_)) | Err(_) => false,
         }
     };
-    let (mut chars, mut lines, mut rects, mut curves) = if content_ok {
-        collector.finish()
+    let mut chars = if content_ok {
+        let (chars, _, _, _) = collector.finish();
+        chars
     } else {
-        (Vec::new(), Vec::new(), Vec::new(), Vec::new())
+        Vec::new()
+    };
+    let (mut lines, mut rects, mut curves) = if images_result.is_ok() {
+        page_paths::collect(doc, page_id, &resources, geom, page_number)
+            .unwrap_or_default()
+    } else {
+        (Vec::new(), Vec::new(), Vec::new())
     };
     let (appearance_chars, appearance_lines, appearance_rects, appearance_curves) =
         annotation_appearance::collect(doc, &page_dict, page_id, geom, page_number, &resources);
