@@ -10,6 +10,8 @@ use pdf_extract::{MediaBox, OutputDev, Path, PathOp, Space, Transform};
 use serde_json::Value;
 use std::collections::HashSet;
 
+mod widget_appearance;
+
 const MAX_FORM_XOBJECT_DEPTH: usize = 64;
 const MAX_PAGE_PARENT_DEPTH: usize = 256;
 const MAX_XOBJECT_INVOCATIONS_PER_PAGE: usize = 10_000;
@@ -444,11 +446,17 @@ fn parse_page(doc: &Document, page_number: usize, page_id: ObjectId, doctop_offs
             Ok(Err(_)) | Err(_) => false,
         }
     };
-    let (chars, lines, rects, curves) = if content_ok {
+    let (mut chars, mut lines, mut rects, mut curves) = if content_ok {
         collector.finish()
     } else {
         (Vec::new(), Vec::new(), Vec::new(), Vec::new())
     };
+    let (appearance_chars, appearance_lines, appearance_rects, appearance_curves) =
+        widget_appearance::collect(doc, &page_dict, page_id, geom, page_number, &resources);
+    chars.extend(appearance_chars);
+    lines.extend(appearance_lines);
+    rects.extend(appearance_rects);
+    curves.extend(appearance_curves);
 
     let images = images_result.unwrap_or_default();
     let (annots, hyperlinks) = collect_annotations(doc, &page_dict, geom, page_number)

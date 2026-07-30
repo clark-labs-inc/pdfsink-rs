@@ -678,7 +678,7 @@ dependencies = [
 
 [[package]]
 name = "pdfsink-rs"
-version = "0.2.12"
+version = "0.2.13"
 dependencies = [
  "csv",
  "euclid",
