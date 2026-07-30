@@ -12,7 +12,7 @@ mod types;
 
 pub use display::{HasBBox, HasCenter, HasLineSegments, PageImage, RenderOptions, RgbaColor};
 pub use error::{Error, Result};
-pub use parse::open_pdf;
+pub use parse::{open_pdf, open_pdf_bytes};
 pub use table::{table_rows_to_csv, CellGroup, ExplicitLine, Table, TableFinder, TableSettings, TableStrategy};
 pub use text::{
     chars_to_textmap, dedupe_chars, extract_text, extract_text_lines, extract_text_simple,
@@ -31,6 +31,10 @@ use geometry::{crop_objects, outside_objects, test_proposed_bbox, within_objects
 impl PdfDocument {
     pub fn open<P: AsRef<std::path::Path>>(path: P) -> Result<Self> {
         open_pdf(path)
+    }
+
+    pub fn from_bytes<B: AsRef<[u8]>>(bytes: B) -> Result<Self> {
+        open_pdf_bytes(bytes)
     }
 
     pub fn len(&self) -> usize {
