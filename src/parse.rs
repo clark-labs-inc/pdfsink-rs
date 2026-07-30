@@ -18,8 +18,6 @@ const MAX_XOBJECT_INVOCATIONS_PER_PAGE: usize = 10_000;
 struct PageGeometry {
     raw_x0: f64,
     raw_y0: f64,
-    raw_width: f64,
-    raw_height: f64,
     rotation: i32,
     width: f64,
     height: f64,
@@ -42,8 +40,6 @@ impl PageGeometry {
         Self {
             raw_x0,
             raw_y0,
-            raw_width,
-            raw_height,
             rotation,
             width,
             height,
@@ -250,7 +246,22 @@ impl CollectorOutput {
                     current = Some((*x3, *y3));
                 }
                 PathOp::Rect(x, y, w, h) => {
-                    commands.push(PathCommand::Rect { x: *x, y: *y, width: *w, height: *h });
+                    let corners = [
+                        self.map_transformed_point(ctm, *x, *y),
+                        self.map_transformed_point(ctm, *x + *w, *y),
+                        self.map_transformed_point(ctm, *x + *w, *y + *h),
+                        self.map_transformed_point(ctm, *x, *y + *h),
+                    ];
+                    if let Some(rect_bbox) = bbox_from_points(&corners) {
+                        pts.extend(corners);
+                        commands.push(PathCommand::Rect {
+                            x: rect_bbox.x0,
+                            y: rect_bbox.top,
+                            width: rect_bbox.width(),
+                            height: rect_bbox.height(),
+                        });
+                    }
+                    current = Some((*x, *y));
                 }
                 PathOp::Close => commands.push(PathCommand::Close),
             }
@@ -388,8 +399,8 @@ pub fn open_pdf<P: AsRef<std::path::Path>>(path: P) -> Result<crate::types::PdfD
 fn parse_page(doc: &Document, page_number: usize, page_id: ObjectId, doctop_offset: f64) -> Result<Page> {
     let rotation = get_inherited_object(doc, page_id, b"Rotate")?
         .and_then(|obj| obj_to_i64(&obj))
-        .unwrap_or(0) as i32
-        % 360;
+        .unwrap_or(0)
+        .rem_euclid(360) as i32;
 
     let media_box_obj = get_inherited_object(doc, page_id, b"MediaBox")?
         .ok_or_else(|| Error::Message(format!("page {page_number} missing MediaBox")))?;
