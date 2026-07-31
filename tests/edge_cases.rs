@@ -31,6 +31,27 @@ fn open_non_pdf_file_returns_error() {
 }
 
 #[test]
+fn open_pdf_from_bytes_matches_path_loading() {
+    let path = fixture("simple_text.pdf");
+    let bytes = std::fs::read(&path).unwrap();
+
+    let from_path = PdfDocument::open(&path).unwrap();
+    let from_bytes = PdfDocument::from_bytes(bytes).unwrap();
+
+    assert_eq!(from_bytes.len(), from_path.len());
+    assert_eq!(
+        from_bytes.page(1).unwrap().extract_text(),
+        from_path.page(1).unwrap().extract_text()
+    );
+}
+
+#[test]
+fn open_invalid_bytes_returns_error() {
+    let result = PdfDocument::from_bytes(b"this is not a valid pdf");
+    assert!(result.is_err());
+}
+
+#[test]
 fn page_zero_returns_invalid_page() {
     let pdf = PdfDocument::open(fixture("simple_text.pdf")).unwrap();
     let result = pdf.page(0);
