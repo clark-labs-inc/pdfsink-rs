@@ -133,6 +133,21 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 }
 ```
 
+## Browser / WASM Input (Upload Bytes)
+
+Use `PdfDocument::from_bytes` when your PDF comes from an upload buffer instead of a filesystem path.
+
+```rust
+use pdfsink_rs::PdfDocument;
+
+fn parse_uploaded_pdf(bytes: Vec<u8>) -> Result<String, pdfsink_rs::Error> {
+    let pdf = PdfDocument::from_bytes(bytes)?;
+    Ok(pdf.extract_text())
+}
+```
+
+This is the expected entrypoint for in-browser workflows where you receive file bytes from JavaScript and pass them into Rust/WASM.
+
 ## CLI
 
 ```text

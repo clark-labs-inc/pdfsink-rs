@@ -388,6 +388,15 @@ fn straight_line_from_path(path: &Path) -> Option<((f64, f64), (f64, f64))> {
 pub fn open_pdf<P: AsRef<std::path::Path>>(path: P) -> Result<crate::types::PdfDocument> {
     let pathbuf = path.as_ref().to_path_buf();
     let doc = Document::load(&pathbuf)?;
+    open_pdf_document(doc, pathbuf)
+}
+
+pub fn open_pdf_bytes<B: AsRef<[u8]>>(bytes: B) -> Result<crate::types::PdfDocument> {
+    let doc = Document::load_mem(bytes.as_ref())?;
+    open_pdf_document(doc, std::path::PathBuf::new())
+}
+
+fn open_pdf_document(doc: Document, path: std::path::PathBuf) -> Result<crate::types::PdfDocument> {
     let pages = doc.get_pages();
 
     let mut parsed_pages = Vec::new();
@@ -403,7 +412,7 @@ pub fn open_pdf<P: AsRef<std::path::Path>>(path: P) -> Result<crate::types::PdfD
     }
 
     Ok(crate::types::PdfDocument {
-        path: pathbuf,
+        path,
         pages: parsed_pages,
         metadata: extract_metadata(&doc),
         structure_tree: None,
