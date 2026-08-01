@@ -1,4 +1,5 @@
 use crate::types::{BBox, Bounded, Char, Curve, Edge, Line, Page, Point, Word};
+use crate::path_geometry::curve_line_segments;
 use crate::table::{Table, TableFinder, TableSettings};
 use crate::Result;
 use font8x8::UnicodeFonts;
@@ -249,10 +250,7 @@ impl HasLineSegments for Edge {
 
 impl HasLineSegments for Curve {
     fn line_segments(&self) -> Vec<(Point, Point)> {
-        self.pts
-            .windows(2)
-            .map(|pair| (pair[0], pair[1]))
-            .collect::<Vec<_>>()
+        curve_line_segments(self)
     }
 }
 

@@ -1,5 +1,6 @@
 use crate::error::{Error, Result};
 use crate::geometry::bbox_from_points;
+use crate::path_geometry::cubic_extrema_points;
 use crate::types::{
     Annotation, BBox, Char, Curve, Hyperlink, ImageObject, JsonMap, Line, Page, PathCommand, Point, RectObject,
 };
@@ -218,6 +219,7 @@ impl CollectorOutput {
         }
 
         let mut pts: Vec<Point> = Vec::new();
+        let mut bounds_points: Vec<Point> = Vec::new();
         let mut commands = Vec::new();
         let mut current: Option<(f64, f64)> = None;
 
@@ -226,12 +228,14 @@ impl CollectorOutput {
                 PathOp::MoveTo(x, y) => {
                     let p = self.map_transformed_point(ctm, *x, *y);
                     pts.push(p);
+                    bounds_points.push(p);
                     commands.push(PathCommand::MoveTo(p));
                     current = Some((*x, *y));
                 }
                 PathOp::LineTo(x, y) => {
                     let p = self.map_transformed_point(ctm, *x, *y);
                     pts.push(p);
+                    bounds_points.push(p);
                     commands.push(PathCommand::LineTo(p));
                     current = Some((*x, *y));
                 }
@@ -239,6 +243,12 @@ impl CollectorOutput {
                     let c1 = self.map_transformed_point(ctm, *x1, *y1);
                     let c2 = self.map_transformed_point(ctm, *x2, *y2);
                     let p = self.map_transformed_point(ctm, *x3, *y3);
+                    if let Some((cx, cy)) = current {
+                        let start = self.map_transformed_point(ctm, cx, cy);
+                        bounds_points.extend(cubic_extrema_points(start, c1, c2, p));
+                    } else {
+                        bounds_points.push(p);
+                    }
                     if pts.is_empty() {
                         if let Some((cx, cy)) = current {
                             pts.push(self.map_transformed_point(ctm, cx, cy));
@@ -257,6 +267,7 @@ impl CollectorOutput {
                     ];
                     if let Some(rect_bbox) = bbox_from_points(&corners) {
                         pts.extend(corners);
+                        bounds_points.extend(corners);
                         commands.push(PathCommand::Rect {
                             x: rect_bbox.x0,
                             y: rect_bbox.top,
@@ -270,7 +281,7 @@ impl CollectorOutput {
             }
         }
 
-        let Some(bbox) = bbox_from_points(&pts) else {
+        let Some(bbox) = bbox_from_points(&bounds_points) else {
             return;
         };
 

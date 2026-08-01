@@ -6,6 +6,7 @@ mod geometry;
 mod layout;
 mod ops;
 mod parse;
+mod path_geometry;
 mod table;
 mod text;
 mod types;

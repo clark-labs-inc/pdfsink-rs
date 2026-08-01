@@ -173,3 +173,54 @@ fn combined_paint_geometry_in_nested_forms_keeps_its_transform_scope() {
         ]
     );
 }
+
+#[test]
+fn independent_subpaths_render_without_connecting_them() {
+    let pdf = build_pdf(&[
+        "<< /Type /Catalog /Pages 2 0 R >>",
+        "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+        "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 100 100] /Contents 4 0 R >>",
+        "<< /Length 27 >>\nstream\n0 0 10 10 re 20 20 5 5 re S\nendstream",
+    ]);
+    let file = TempPdf::new("independent-stroked-subpaths", &pdf);
+
+    let document = PdfDocument::open(file.path()).expect("open compound-path PDF");
+    let page = document.page(1).expect("page 1");
+    let image = page
+        .to_image(Some(72.0), None, None, false, false)
+        .expect("render compound path");
+
+    assert_eq!(
+        image.original.get_pixel(0, 95).0,
+        [0, 0, 0, 255],
+        "the first rectangle's closing edge must be rendered"
+    );
+    assert_eq!(
+        image.original.get_pixel(10, 85).0,
+        [255, 255, 255, 255],
+        "independent rectangle subpaths must not be joined by a diagonal"
+    );
+}
+
+#[test]
+fn cubic_curve_bounds_and_pixels_include_the_curve_extremum() {
+    let pdf = build_pdf(&[
+        "<< /Type /Catalog /Pages 2 0 R >>",
+        "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+        "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 100 100] /Contents 4 0 R >>",
+        "<< /Length 29 >>\nstream\n10 50 m 10 90 90 90 90 50 c S\nendstream",
+    ]);
+    let file = TempPdf::new("cubic-curve-extremum", &pdf);
+
+    let document = PdfDocument::open(file.path()).expect("open cubic-curve PDF");
+    let page = document.page(1).expect("page 1");
+    let curve = page.curves.first().expect("cubic curve geometry");
+
+    assert_eq!((curve.x0, curve.x1, curve.bottom), (10.0, 90.0, 50.0));
+    assert!((curve.top - 20.0).abs() < 1e-6);
+
+    let image = page
+        .to_image(Some(72.0), None, None, false, false)
+        .expect("render cubic curve");
+    assert_eq!(image.original.get_pixel(50, 20).0, [0, 0, 0, 255]);
+}
