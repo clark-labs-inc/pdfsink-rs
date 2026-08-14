@@ -1,5 +1,8 @@
 [advisories]
 yanked = "deny"
+# lopdf currently exposes ttf-parser only for font metadata. The advisory is
+# unmaintained-status rather than a vulnerability and has no safe upgrade.
+ignore = ["RUSTSEC-2026-0192"]
 [licenses]
 confidence-threshold = 0.8
 allow = [
