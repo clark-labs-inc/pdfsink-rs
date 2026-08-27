@@ -23,7 +23,7 @@ path = "src/bin/pdfsink-rs.rs"
 
 [dependencies]
 csv = "1"
-euclid = "0.20.5"
+euclid = "0.22.14"
 font8x8 = { version = "0.3", default-features = false, features = ["unicode"] }
 flate2 = "1"
 image = { version = "0.25", default-features = false, features = ["png", "jpeg"] }
