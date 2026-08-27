@@ -289,7 +289,7 @@ impl Type3Walker<'_> {
             )
             .post_transform(&state.text.text_matrix.post_transform(&state.ctm));
             let glyph_ctm = font.font_matrix.post_transform(&glyph_text_matrix);
-            let (lines, rects, curves) = page_paths::collect_stream(
+            let (mut lines, mut rects, mut curves) = page_paths::collect_stream(
                 self.doc,
                 content,
                 &font.resources,
@@ -297,6 +297,15 @@ impl Type3Walker<'_> {
                 self.page_number,
                 glyph_ctm,
             )?;
+            for line in &mut lines {
+                line.object_type = "type3_glyph".to_string();
+            }
+            for rect in &mut rects {
+                rect.object_type = "type3_glyph".to_string();
+            }
+            for curve in &mut curves {
+                curve.object_type = "type3_glyph".to_string();
+            }
             self.lines.extend(lines);
             self.rects.extend(rects);
             self.curves.extend(curves);

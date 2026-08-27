@@ -92,6 +92,15 @@ fn compound_rectangle_paths_contribute_transformed_geometry() {
 
     assert_eq!((curve.x0, curve.top, curve.x1, curve.bottom), (0.0, 75.0, 25.0, 100.0));
     assert_eq!(curve.pts.len(), 8);
+
+    let image = page
+        .to_image(Some(72.0), None, None, false, false)
+        .expect("render compound path");
+    assert_eq!(
+        image.original.get_pixel(5, 95).0,
+        [255, 255, 255, 255],
+        "ordinary filled curves must retain the legacy outline-only preview when their fill color is unknown"
+    );
 }
 
 #[test]

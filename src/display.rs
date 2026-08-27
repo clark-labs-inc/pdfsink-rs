@@ -569,7 +569,11 @@ impl PageImage {
     fn render_page_content(&mut self, image: &mut RgbaImage) {
         for rect in &self.page.rects {
             let fill = if rect.fill {
-                Some(RgbaColor::new(235, 235, 235, 255).to_rgba())
+                Some(if rect.object_type == "type3_glyph" {
+                    RgbaColor::default().to_rgba()
+                } else {
+                    RgbaColor::new(235, 235, 235, 255).to_rgba()
+                })
             } else {
                 None
             };
@@ -591,7 +595,7 @@ impl PageImage {
             self.render_segment(image, line);
         }
         for curve in &self.page.curves {
-            if curve.fill {
+            if curve.object_type == "type3_glyph" && curve.fill {
                 path_fill::fill_curve(
                     image,
                     curve,
@@ -600,7 +604,7 @@ impl PageImage {
                     RgbaColor::default().to_rgba(),
                 );
             }
-            if curve.stroke || !curve.fill {
+            if curve.object_type != "type3_glyph" || curve.stroke || !curve.fill {
                 self.render_segment(image, curve);
             }
         }
