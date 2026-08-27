@@ -26,6 +26,25 @@ pub(super) fn collect(
     Ok((lines, rects, curves))
 }
 
+pub(super) fn collect_stream(
+    doc: &Document,
+    content: Vec<u8>,
+    resources: &Dictionary,
+    geom: PageGeometry,
+    page_number: usize,
+    initial_ctm: Transform,
+) -> Result<PagePaths> {
+    let mut walker = PagePathWalker {
+        doc,
+        collector: CollectorOutput::new(geom, page_number),
+        active_forms: HashSet::new(),
+        remaining_xobject_invocations: MAX_XOBJECT_INVOCATIONS_PER_PAGE,
+    };
+    walker.walk_stream(content, resources, initial_ctm, 0)?;
+    let (_, lines, rects, curves) = walker.collector.finish();
+    Ok((lines, rects, curves))
+}
+
 struct PagePathWalker<'a> {
     doc: &'a Document,
     collector: CollectorOutput,

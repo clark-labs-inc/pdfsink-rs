@@ -9,6 +9,8 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::time::{SystemTime, UNIX_EPOCH};
 
+mod path_fill;
+
 const DEFAULT_RESOLUTION: f64 = 72.0;
 
 #[derive(Debug, Clone, Copy)]
@@ -589,7 +591,18 @@ impl PageImage {
             self.render_segment(image, line);
         }
         for curve in &self.page.curves {
-            self.render_segment(image, curve);
+            if curve.fill {
+                path_fill::fill_curve(
+                    image,
+                    curve,
+                    self.bbox,
+                    self.scale(),
+                    RgbaColor::default().to_rgba(),
+                );
+            }
+            if curve.stroke || !curve.fill {
+                self.render_segment(image, curve);
+            }
         }
         for image_obj in &self.page.images {
             let rect = self.project_rect(Bounded::bbox(image_obj));
@@ -609,6 +622,9 @@ impl PageImage {
     }
 
     fn render_char(&self, image: &mut RgbaImage, ch: &Char) {
+        if ch.fontname.starts_with("Type3:") {
+            return;
+        }
         let Some(letter) = ch.text.chars().next() else {
             return;
         };

@@ -172,11 +172,13 @@ Built on `lopdf` for PDF parsing and `pdf-extract` for content stream processing
 |------|---------|
 | `src/lib.rs` | Public API (PdfDocument, Page methods) |
 | `src/parse.rs` | PDF parsing, page-object extraction, metadata |
+| `src/parse/type3.rs` | Type3 text decoding and embedded glyph procedures |
 | `src/text.rs` | Text/word extraction, search, layout |
 | `src/table.rs` | Table detection and extraction |
 | `src/layout.rs` | Layout analysis (textlines, textboxes, layout tree) |
 | `src/container_api.rs` | Serialization (JSON, CSV, dict export) |
 | `src/display.rs` | Image rendering, drawing primitives |
+| `src/display/path_fill.rs` | Filled vector-path rasterization, including Type3 glyphs |
 | `src/geometry.rs` | Bbox operations, cropping, filtering |
 | `src/clustering.rs` | Value clustering for layout analysis |
 
@@ -212,6 +214,11 @@ Yes. `page.extract_table(TableSettings::default())` and `find_tables` implement 
 
 **Does it render PDFs to images?**
 Yes. `page.to_image()` rasterizes pages to PNG or JPEG at any DPI.
+
+**Does it handle Chromium Type3 fonts?**
+Yes. Chromium/Skia Type3 fonts use their `/ToUnicode` map for extraction and
+their embedded `/CharProcs` vector outlines for native previews, including CJK
+text. Marked-content `/ActualText` takes precedence when present.
 
 **Does it handle malformed PDFs?**
 Yes. Pages that fail content-stream parsing are reported but don't abort document-level extraction — geometry is preserved and bad content is skipped.

@@ -13,6 +13,7 @@ use std::collections::HashSet;
 
 mod annotation_appearance;
 mod page_paths;
+mod type3;
 
 const MAX_FORM_XOBJECT_DEPTH: usize = 64;
 const MAX_PAGE_PARENT_DEPTH: usize = 256;
@@ -479,6 +480,20 @@ fn parse_page(doc: &Document, page_number: usize, page_id: ObjectId, doctop_offs
     } else {
         (Vec::new(), Vec::new(), Vec::new())
     };
+    if let Ok(type3) = type3::collect(doc, page_id, &resources, geom, page_number) {
+        for replacement in &type3.chars {
+            chars.retain(|candidate| !type3::same_glyph_slot(candidate, replacement));
+        }
+        chars.extend(
+            type3
+                .chars
+                .into_iter()
+                .filter(|character| !character.text.is_empty()),
+        );
+        lines.extend(type3.lines);
+        rects.extend(type3.rects);
+        curves.extend(type3.curves);
+    }
     let (appearance_chars, appearance_lines, appearance_rects, appearance_curves) =
         annotation_appearance::collect(doc, &page_dict, page_id, geom, page_number, &resources);
     chars.extend(appearance_chars);
