@@ -28,7 +28,7 @@ font8x8 = { version = "0.3", default-features = false, features = ["unicode"] }
 flate2 = "1"
 image = { version = "0.25", default-features = false, features = ["png", "jpeg"] }
 lopdf = "0.42"
-ordered-float = "4"
+ordered-float = "5"
 pdf-extract = "0.12"
 regex = "1"
 serde = { version = "1", features = ["derive"] }
