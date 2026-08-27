@@ -46,6 +46,27 @@ fn open_pdf_from_bytes_matches_path_loading() {
 }
 
 #[test]
+fn open_selected_pages_parses_only_requested_source_pages() {
+    let path = fixture("multipage.pdf");
+    let selected = PdfDocument::open_pages(&path, &[2]).unwrap();
+
+    assert_eq!(selected.len(), 1);
+    let page = selected.page(1).unwrap();
+    assert_eq!(page.page_number, 2);
+    assert!(page.extract_text().contains("Page Two"));
+    assert!(!page.extract_text().contains("Page One"));
+}
+
+#[test]
+fn open_selected_pages_rejects_an_invalid_source_page() {
+    let error = PdfDocument::open_pages(fixture("multipage.pdf"), &[3]).unwrap_err();
+    match error {
+        Error::InvalidPage { page_number } => assert_eq!(page_number, 3),
+        other => panic!("expected InvalidPage, got {other:?}"),
+    }
+}
+
+#[test]
 fn open_invalid_bytes_returns_error() {
     let result = PdfDocument::from_bytes(b"this is not a valid pdf");
     assert!(result.is_err());

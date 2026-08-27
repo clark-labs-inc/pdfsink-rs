@@ -13,7 +13,7 @@ mod types;
 
 pub use display::{HasBBox, HasCenter, HasLineSegments, PageImage, RenderOptions, RgbaColor};
 pub use error::{Error, Result};
-pub use parse::{open_pdf, open_pdf_bytes};
+pub use parse::{open_pdf, open_pdf_bytes, open_pdf_bytes_pages, open_pdf_pages};
 pub use table::{table_rows_to_csv, CellGroup, ExplicitLine, Table, TableFinder, TableSettings, TableStrategy};
 pub use text::{
     chars_to_textmap, dedupe_chars, extract_text, extract_text_lines, extract_text_simple,
@@ -36,6 +36,20 @@ impl PdfDocument {
 
     pub fn from_bytes<B: AsRef<[u8]>>(bytes: B) -> Result<Self> {
         open_pdf_bytes(bytes)
+    }
+
+    pub fn open_pages<P: AsRef<std::path::Path>>(
+        path: P,
+        page_numbers: &[usize],
+    ) -> Result<Self> {
+        open_pdf_pages(path, page_numbers)
+    }
+
+    pub fn from_bytes_pages<B: AsRef<[u8]>>(
+        bytes: B,
+        page_numbers: &[usize],
+    ) -> Result<Self> {
+        open_pdf_bytes_pages(bytes, page_numbers)
     }
 
     pub fn len(&self) -> usize {

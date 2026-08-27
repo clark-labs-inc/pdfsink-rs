@@ -86,10 +86,20 @@ Or in `Cargo.toml`:
 
 ```toml
 [dependencies]
-pdfsink-rs = "0.2.14"
+pdfsink-rs = "0.2.19"
 ```
 
 Requires Rust **1.97+**.
+
+For large PDFs, parse only the source pages you need. The returned document
+contains only those pages, while each `Page::page_number` retains its original
+1-based source page number:
+
+```rust
+let selected = PdfDocument::open_pages("large.pdf", &[120, 121])?;
+assert_eq!(selected.len(), 2);
+assert_eq!(selected.page(1)?.page_number, 120);
+```
 
 ## Quick Start — Extract Text and Tables from a PDF in Rust
 

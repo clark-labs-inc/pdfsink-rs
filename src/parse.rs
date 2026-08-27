@@ -389,16 +389,57 @@ fn straight_line_from_path(path: &Path) -> Option<((f64, f64), (f64, f64))> {
 pub fn open_pdf<P: AsRef<std::path::Path>>(path: P) -> Result<crate::types::PdfDocument> {
     let pathbuf = path.as_ref().to_path_buf();
     let doc = Document::load(&pathbuf)?;
-    open_pdf_document(doc, pathbuf)
+    open_pdf_document(doc, pathbuf, None)
+}
+
+/// Open and materialize only the requested 1-based source pages.
+///
+/// The returned document is compact, while each page retains its original
+/// source `page_number`. Duplicate page numbers are parsed once in source order.
+pub fn open_pdf_pages<P: AsRef<std::path::Path>>(
+    path: P,
+    page_numbers: &[usize],
+) -> Result<crate::types::PdfDocument> {
+    let pathbuf = path.as_ref().to_path_buf();
+    let doc = Document::load(&pathbuf)?;
+    open_pdf_document(doc, pathbuf, Some(page_numbers))
 }
 
 pub fn open_pdf_bytes<B: AsRef<[u8]>>(bytes: B) -> Result<crate::types::PdfDocument> {
     let doc = Document::load_mem(bytes.as_ref())?;
-    open_pdf_document(doc, std::path::PathBuf::new())
+    open_pdf_document(doc, std::path::PathBuf::new(), None)
 }
 
-fn open_pdf_document(doc: Document, path: std::path::PathBuf) -> Result<crate::types::PdfDocument> {
+/// Open PDF bytes and materialize only the requested 1-based source pages.
+pub fn open_pdf_bytes_pages<B: AsRef<[u8]>>(
+    bytes: B,
+    page_numbers: &[usize],
+) -> Result<crate::types::PdfDocument> {
+    let doc = Document::load_mem(bytes.as_ref())?;
+    open_pdf_document(doc, std::path::PathBuf::new(), Some(page_numbers))
+}
+
+fn open_pdf_document(
+    doc: Document,
+    path: std::path::PathBuf,
+    selected_page_numbers: Option<&[usize]>,
+) -> Result<crate::types::PdfDocument> {
     let pages = doc.get_pages();
+    let selected = selected_page_numbers
+        .map(|numbers| numbers.iter().copied().collect::<HashSet<_>>());
+
+    if let Some(selected) = &selected {
+        if selected.contains(&0) {
+            return Err(Error::InvalidPage { page_number: 0 });
+        }
+        if let Some(page_number) = selected
+            .iter()
+            .copied()
+            .find(|page_number| !pages.contains_key(&(*page_number as u32)))
+        {
+            return Err(Error::InvalidPage { page_number });
+        }
+    }
 
     let mut parsed_pages = Vec::new();
     let mut doctop_offset = 0.0;
@@ -407,6 +448,12 @@ fn open_pdf_document(doc: Document, path: std::path::PathBuf) -> Result<crate::t
     ordered.sort_by_key(|(page_number, _)| *page_number);
 
     for (page_number, page_id) in ordered {
+        if selected
+            .as_ref()
+            .is_some_and(|numbers| !numbers.contains(&(page_number as usize)))
+        {
+            continue;
+        }
         let page = parse_page(&doc, page_number as usize, page_id, doctop_offset)?;
         doctop_offset += page.height;
         parsed_pages.push(page);
